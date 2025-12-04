@@ -158,7 +158,7 @@ def get_top_products(df: pd.DataFrame, n: int = 10) -> pd.DataFrame:
     return df.head(n).copy()
 
 
-def validate_dataframe(df: pd.DataFrame) -> bool:
+def validate_dataframe(df: pd.DataFrame) -> tuple[bool, list[str]]:
     """
     Validate that DataFrame has required structure and data.
 
@@ -166,15 +166,35 @@ def validate_dataframe(df: pd.DataFrame) -> bool:
         df: DataFrame to validate
 
     Returns:
-        True if valid, False otherwise
+        Tuple of (is_valid, list of warning messages)
     """
+    warnings = []
+
     if df is None or len(df) == 0:
-        return False
+        return False, ["X-Ray data is empty"]
 
     required_cols = ['ASIN', 'Brand', 'Price', 'Revenue', 'Sales', 'Review Count', 'Ratings']
 
     for col in required_cols:
         if col not in df.columns:
-            return False
+            return False, [f"Missing required column: {col}"]
 
-    return True
+    # Data quality checks
+    if len(df) < 10:
+        warnings.append(f"Only {len(df)} products found - export may be incomplete (expected 10+)")
+
+    # Check for suspicious data
+    zero_revenue_count = (df['Revenue'] == 0).sum()
+    if zero_revenue_count > 0:
+        warnings.append(f"{zero_revenue_count} products with zero revenue (filtered out)")
+
+    # Check price range
+    max_price = df['Price'].max()
+    if max_price > 50000:
+        warnings.append(f"Some products have very high prices (max: ₹{max_price:,.0f})")
+
+    min_price = df[df['Price'] > 0]['Price'].min() if (df['Price'] > 0).any() else 0
+    if min_price < 50 and min_price > 0:
+        warnings.append(f"Some products have very low prices (min: ₹{min_price:,.0f})")
+
+    return True, warnings

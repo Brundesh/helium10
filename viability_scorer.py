@@ -108,12 +108,16 @@ def score_price_viability(median_price: float) -> Tuple[int, str]:
         return 4, "Low margins (Median <₹300)"
 
 
-def calculate_viability_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
+def calculate_viability_score(metrics: Dict[str, Any], magnet_metrics: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    Calculate overall viability score (0-100).
+    Calculate overall viability score.
+
+    WITHOUT Magnet data: 0-100 points
+    WITH Magnet data: 0-150 points (includes demand/supply analysis)
 
     Args:
-        metrics: Dictionary containing all calculated metrics
+        metrics: Dictionary containing X-Ray metrics
+        magnet_metrics: Optional dictionary from magnet_processor.calculate_demand_supply_ratio
 
     Returns:
         Dictionary with score breakdown and total
@@ -121,38 +125,91 @@ def calculate_viability_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
     if metrics is None:
         return {
             'total_score': 0,
+            'max_score': 100,
+            'score_percentage': 0.0,
             'breakdown': {},
             'grade': 'F',
             'recommendation': 'Invalid data'
         }
 
-    # Extract values
+    # Extract X-Ray values
     market_size = metrics['market_size']['estimated_total_market']
     top_3_share = metrics['market_concentration']['top_3_share_percentage']
     top_seller_reviews = metrics['top_seller']['reviews']
     avg_rating = metrics['rating_analysis']['average_rating_top_20']
     median_price = metrics['median_price']
 
-    # Calculate individual scores
+    # Calculate X-Ray scores (base 100 points)
     size_score, size_reason = score_market_size(market_size)
     frag_score, frag_reason = score_market_fragmentation(top_3_share)
     review_score, review_reason = score_top_seller_reviews(top_seller_reviews)
     rating_score, rating_reason = score_average_rating(avg_rating)
     price_score, price_reason = score_price_viability(median_price)
 
-    # Calculate total
+    # Base total (X-Ray only)
     total_score = size_score + frag_score + review_score + rating_score + price_score
 
-    # Determine grade and recommendation
-    if total_score >= 85:
+    # Build breakdown dictionary
+    breakdown = {
+        'market_size': {
+            'score': size_score,
+            'max': 20,
+            'reason': size_reason
+        },
+        'market_fragmentation': {
+            'score': frag_score,
+            'max': 20,
+            'reason': frag_reason
+        },
+        'competition': {
+            'score': review_score,
+            'max': 15,
+            'reason': review_reason
+        },
+        'customer_satisfaction': {
+            'score': rating_score,
+            'max': 15,
+            'reason': rating_reason
+        },
+        'price_viability': {
+            'score': price_score,
+            'max': 10,
+            'reason': price_reason
+        }
+    }
+
+    # Add Magnet scores if available (adds 50 points: 25 demand + 25 supply)
+    max_score = 100
+    if magnet_metrics is not None:
+        max_score = 150
+        demand_score = magnet_metrics['demand_score']
+        supply_score = magnet_metrics['supply_score']
+        total_score += demand_score + supply_score
+
+        breakdown['demand'] = {
+            'score': demand_score,
+            'max': 25,
+            'reason': f"{magnet_metrics['demand_tier']} demand ({magnet_metrics.get('search_volume', 0):,} searches/month)"
+        }
+        breakdown['supply_balance'] = {
+            'score': supply_score,
+            'max': 25,
+            'reason': f"{magnet_metrics['supply_tier']} ({magnet_metrics.get('competing_products', 0):,} competitors)"
+        }
+
+    # Calculate percentage score
+    score_percentage = (total_score / max_score) * 100
+
+    # Determine grade and recommendation based on percentage
+    if score_percentage >= 85:
         grade = 'A+'
         recommendation = '🔥 Excellent opportunity!'
         color = 'green'
-    elif total_score >= 70:
+    elif score_percentage >= 70:
         grade = 'A'
         recommendation = '✅ Good opportunity'
         color = 'lightgreen'
-    elif total_score >= 60:
+    elif score_percentage >= 60:
         grade = 'B'
         recommendation = '⚠️ Risky - proceed with caution'
         color = 'orange'
@@ -163,36 +220,12 @@ def calculate_viability_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         'total_score': total_score,
+        'max_score': max_score,
+        'score_percentage': score_percentage,
         'grade': grade,
         'recommendation': recommendation,
         'color': color,
-        'breakdown': {
-            'market_size': {
-                'score': size_score,
-                'max': 20,
-                'reason': size_reason
-            },
-            'market_fragmentation': {
-                'score': frag_score,
-                'max': 20,
-                'reason': frag_reason
-            },
-            'competition': {
-                'score': review_score,
-                'max': 15,
-                'reason': review_reason
-            },
-            'customer_satisfaction': {
-                'score': rating_score,
-                'max': 15,
-                'reason': rating_reason
-            },
-            'price_viability': {
-                'score': price_score,
-                'max': 10,
-                'reason': price_reason
-            }
-        }
+        'breakdown': breakdown
     }
 
 
