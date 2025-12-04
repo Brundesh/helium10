@@ -173,38 +173,79 @@ def generate_flags(xray_metrics: Dict[str, Any],
                 'value': trend
             })
 
-    # === DEMAND/SUPPLY RATIO FLAGS ===
+    # === DEMAND/SUPPLY RATIO FLAGS (using CORRECT X-Ray product count) ===
 
     if demand_supply is not None:
-        ratio = demand_supply['ratio']
+        ds_ratio = demand_supply.get('ds_ratio', demand_supply.get('ratio', 0))
+        success_rate = demand_supply.get('success_rate', None)
 
-        if ratio < 1.0:
+        # D/S Ratio flags (NEW THRESHOLDS for actual product count)
+        if ds_ratio < 100:
             red_flags.append({
-                'message': f'Oversupplied market (ratio: {ratio:.1f})',
+                'message': f'Low search capture per product (D/S ratio: {ds_ratio:.0f})',
                 'metric': 'demand_supply_ratio',
-                'value': ratio
+                'value': ds_ratio
             })
-        elif ratio < 2.0:
+        elif ds_ratio < 200:
             yellow_flags.append({
-                'message': f'Low demand/supply ratio ({ratio:.1f})',
+                'message': f'Moderate search capture (D/S ratio: {ds_ratio:.0f})',
                 'metric': 'demand_supply_ratio',
-                'value': ratio
+                'value': ds_ratio
             })
-        elif ratio > 4.0:
+        elif ds_ratio >= 2000:
             green_signals.append({
-                'message': f'Excellent demand/supply ratio ({ratio:.1f})',
+                'message': f'🔥🔥🔥 GOLDMINE: Exceptional {ds_ratio:.0f} searches per ranked product',
                 'metric': 'demand_supply_ratio',
-                'value': ratio
+                'value': ds_ratio
+            })
+        elif ds_ratio >= 1000:
+            green_signals.append({
+                'message': f'🔥🔥 Excellent: {ds_ratio:.0f} searches per ranked product',
+                'metric': 'demand_supply_ratio',
+                'value': ds_ratio
+            })
+        elif ds_ratio >= 500:
+            green_signals.append({
+                'message': f'🔥 Very good: {ds_ratio:.0f} searches per ranked product',
+                'metric': 'demand_supply_ratio',
+                'value': ds_ratio
+            })
+        elif ds_ratio >= 200:
+            green_signals.append({
+                'message': f'Good demand capture: {ds_ratio:.0f} searches per ranked product',
+                'metric': 'demand_supply_ratio',
+                'value': ds_ratio
             })
 
-        # GOLDMINE COMBO: High volume + good ratio
+        # Success Rate flags (NEW)
+        if success_rate is not None:
+            if success_rate < 0.5:
+                green_signals.append({
+                    'message': f'🔥🔥🔥 GOLDMINE: Only {success_rate:.2f}% of sellers rank (99.{int(100-success_rate)}% failed) - massive opportunity if you can differentiate',
+                    'metric': 'market_efficiency',
+                    'value': success_rate
+                })
+            elif success_rate < 1.0:
+                green_signals.append({
+                    'message': f'Low success rate ({success_rate:.2f}%) - most sellers struggle to rank. Strong differentiation can win.',
+                    'metric': 'market_efficiency',
+                    'value': success_rate
+                })
+
+        # GOLDMINE COMBO: High volume + excellent ratio
         if magnet_metrics is not None:
             search_volume = magnet_metrics['search_volume']
-            if search_volume > 50000 and ratio > 3.0:
+            if search_volume > 100000 and ds_ratio > 1000:
                 green_signals.append({
-                    'message': f'GOLDMINE: High demand ({search_volume:,}) + good ratio ({ratio:.1f})',
+                    'message': f'🔥🔥🔥 GOLDMINE COMBO: Massive demand ({search_volume:,}/mo) + exceptional capture rate ({ds_ratio:.0f} per product)',
                     'metric': 'goldmine_combo',
-                    'value': {'volume': search_volume, 'ratio': ratio}
+                    'value': {'volume': search_volume, 'ratio': ds_ratio}
+                })
+            elif search_volume > 50000 and ds_ratio > 500:
+                green_signals.append({
+                    'message': f'🔥 Excellent combo: High demand ({search_volume:,}/mo) + strong capture ({ds_ratio:.0f} per product)',
+                    'metric': 'goldmine_combo',
+                    'value': {'volume': search_volume, 'ratio': ds_ratio}
                 })
 
     return {

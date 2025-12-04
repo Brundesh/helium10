@@ -319,27 +319,38 @@ def calculate_demand_metrics(df: pd.DataFrame, filename: str = None,
     }
 
 
-def calculate_demand_supply_ratio(demand_metrics: Dict[str, Any]) -> Dict[str, Any]:
+def calculate_demand_supply_ratio(demand_metrics: Dict[str, Any], xray_metrics: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Calculate demand-to-supply ratio and score.
+    Calculate demand-to-supply ratio using X-Ray ACTUAL product count.
+
+    CRITICAL: Uses X-Ray product count (products ranking on pages 1-2), NOT Magnet's
+    broad competitor count. This gives the TRUE opportunity for ranked products.
 
     Args:
-        demand_metrics: Dictionary from calculate_demand_metrics
+        demand_metrics: Dictionary from calculate_demand_metrics (Magnet data)
+        xray_metrics: Dictionary from calculate_all_metrics (X-Ray data)
 
     Returns:
         Dictionary with ratio, scores, verdict, and reasoning
     """
-    if demand_metrics is None:
+    if demand_metrics is None or xray_metrics is None:
         return None
 
     search_volume = demand_metrics['search_volume']
-    competing_products = demand_metrics['competing_products']
+    magnet_total_listings = demand_metrics['competing_products']  # Keep for context
+    xray_product_count = xray_metrics['total_products']  # ACTUAL products ranking
 
-    # Calculate ratio (avoid division by zero)
-    if competing_products > 0:
-        ratio = search_volume / competing_products
+    # Calculate TRUE D/S ratio using X-Ray product count
+    if xray_product_count > 0:
+        ds_ratio = search_volume / xray_product_count
     else:
-        ratio = search_volume  # Assume 1 competitor if 0
+        ds_ratio = search_volume  # Assume 1 if somehow 0
+
+    # Calculate success rate (what % of total listings actually rank on pages 1-2)
+    if magnet_total_listings > 0:
+        success_rate = (xray_product_count / magnet_total_listings) * 100
+    else:
+        success_rate = 100.0  # If no Magnet data, assume 100%
 
     # Demand Score (0-25) based on search_volume
     if search_volume >= 150000:
@@ -364,58 +375,77 @@ def calculate_demand_supply_ratio(demand_metrics: Dict[str, Any]) -> Dict[str, A
         demand_score = 5
         demand_tier = "Low"
 
-    # Supply Score (0-25) based on competing_products
-    if competing_products < 5000:
+    # Supply Score (0-25) based on X-Ray product count (ACTUAL competition on pages 1-2)
+    if xray_product_count < 50:
         supply_score = 25
-        supply_tier = "Undersupplied"
-    elif competing_products < 10000:
+        supply_tier = "Very Low"
+    elif xray_product_count < 100:
+        supply_score = 22
+        supply_tier = "Low"
+    elif xray_product_count < 200:
         supply_score = 20
-        supply_tier = "Low Competition"
-    elif competing_products < 15000:
+        supply_tier = "Moderate"
+    elif xray_product_count < 500:
         supply_score = 17
-        supply_tier = "Moderate Competition"
-    elif competing_products < 20000:
+        supply_tier = "Moderate-High"
+    elif xray_product_count < 1000:
         supply_score = 14
-        supply_tier = "Moderate-High Competition"
-    elif competing_products < 30000:
-        supply_score = 10
-        supply_tier = "High Competition"
+        supply_tier = "High"
     else:
-        supply_score = 7
-        supply_tier = "Saturated"
+        supply_score = 10
+        supply_tier = "Very High"
 
     # Balance score
     balance_score = demand_score + supply_score
 
-    # Verdict based on ratio
-    if ratio >= 8.0:
+    # Verdict based on D/S ratio (NEW THRESHOLDS for actual product count)
+    if ds_ratio >= 2000:
+        verdict = "GOLDMINE"
+        verdict_color = "green"
+        verdict_emoji = "🔥🔥🔥"
+    elif ds_ratio >= 1000:
         verdict = "EXCELLENT"
         verdict_color = "green"
+        verdict_emoji = "🔥🔥"
+    elif ds_ratio >= 500:
+        verdict = "VERY_GOOD"
+        verdict_color = "green"
         verdict_emoji = "🔥"
-    elif ratio >= 4.0:
+    elif ds_ratio >= 200:
         verdict = "GOOD"
         verdict_color = "green"
         verdict_emoji = "✅"
-    elif ratio >= 2.0:
+    elif ds_ratio >= 100:
         verdict = "MODERATE"
         verdict_color = "yellow"
         verdict_emoji = "⚠️"
-    elif ratio >= 1.0:
-        verdict = "POOR"
-        verdict_color = "orange"
-        verdict_emoji = "⚠️"
     else:
-        verdict = "AVOID"
+        verdict = "POOR"
         verdict_color = "red"
         verdict_emoji = "❌"
 
-    # Generate reasoning
-    reasoning = f"With {search_volume:,} monthly searches and {competing_products:,} competing products, "
-    reasoning += f"this keyword shows {demand_tier.lower()} demand in a {supply_tier.lower()} market. "
-    reasoning += f"The ratio of {ratio:.1f} searches per competitor indicates a {verdict.lower()} opportunity."
+    # Generate reasoning with new context
+    reasoning = f"With {search_volume:,} monthly searches captured by {xray_product_count} products ranking on pages 1-2, "
+    reasoning += f"each ranked product gets ~{ds_ratio:.0f} searches/month. "
+
+    # Add success rate context
+    if success_rate < 0.5:
+        reasoning += f"Only {success_rate:.2f}% of {magnet_total_listings:,} total listings rank (99.{int(100-success_rate)}% failed) - "
+        reasoning += f"massive opportunity if you can differentiate and rank."
+    elif success_rate < 1.0:
+        reasoning += f"Low success rate ({success_rate:.2f}%) indicates most sellers struggle to rank. "
+        reasoning += f"Strong differentiation can win."
+    elif success_rate < 3.0:
+        reasoning += f"Moderate success rate ({success_rate:.2f}%) - competitive but winnable with good strategy."
+    else:
+        reasoning += f"High success rate ({success_rate:.2f}%) indicates many sellers successfully rank."
 
     return {
-        'ratio': ratio,
+        'ds_ratio': ds_ratio,  # NEW: Renamed from 'ratio' for clarity
+        'search_volume': search_volume,
+        'xray_product_count': xray_product_count,  # NEW
+        'magnet_total_listings': magnet_total_listings,  # NEW: Keep for context
+        'success_rate': success_rate,  # NEW
         'demand_score': demand_score,
         'supply_score': supply_score,
         'balance_score': balance_score,
@@ -424,7 +454,9 @@ def calculate_demand_supply_ratio(demand_metrics: Dict[str, Any]) -> Dict[str, A
         'verdict': verdict,
         'verdict_color': verdict_color,
         'verdict_emoji': verdict_emoji,
-        'reasoning': reasoning
+        'reasoning': reasoning,
+        # Keep old 'ratio' key for backward compatibility
+        'ratio': ds_ratio
     }
 
 

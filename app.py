@@ -189,7 +189,7 @@ def process_uploaded_files(xray_files, magnet_files=None) -> Dict[str, Any]:
                             seed_keyword=None
                         )
                         if magnet_demand_metrics:
-                            magnet_ds_ratio = calculate_demand_supply_ratio(magnet_demand_metrics)
+                            magnet_ds_ratio = calculate_demand_supply_ratio(magnet_demand_metrics, xray_metrics)
                             # Add search_volume and competing_products to ds_ratio for scorer
                             magnet_ds_ratio['search_volume'] = magnet_demand_metrics['search_volume']
                             magnet_ds_ratio['competing_products'] = magnet_demand_metrics['competing_products']
@@ -282,13 +282,17 @@ def create_comparison_dataframe(products_data: Dict[str, Any]) -> pd.DataFrame:
             has_magnet_data = True
             row['Search Volume'] = magnet_demand['search_volume']
             row['Trend %'] = magnet_demand['trend']
-            row['D/S Ratio'] = magnet_ds['ratio'] if magnet_ds else 0
+            row['D/S Ratio (Pg 1-2)'] = magnet_ds.get('ds_ratio', magnet_ds.get('ratio', 0)) if magnet_ds else 0
+            row['Success Rate %'] = magnet_ds.get('success_rate', 0) if magnet_ds else 0
+            row['Products Ranking'] = magnet_ds.get('xray_product_count', 0) if magnet_ds else 0
             row['Demand Score'] = magnet_ds['demand_score'] if magnet_ds else 0
             row['Supply Score'] = magnet_ds['supply_score'] if magnet_ds else 0
         else:
             row['Search Volume'] = None
             row['Trend %'] = None
-            row['D/S Ratio'] = None
+            row['D/S Ratio (Pg 1-2)'] = None
+            row['Success Rate %'] = None
+            row['Products Ranking'] = None
             row['Demand Score'] = None
             row['Supply Score'] = None
 
@@ -328,7 +332,8 @@ def create_comparison_dataframe(products_data: Dict[str, Any]) -> pd.DataFrame:
                  'Avg Rating', 'Median Price']
 
     if has_magnet_data:
-        magnet_cols = ['Search Volume', 'Trend %', 'D/S Ratio', 'Demand Score', 'Supply Score']
+        magnet_cols = ['Search Volume', 'Trend %', 'Products Ranking', 'D/S Ratio (Pg 1-2)',
+                      'Success Rate %', 'Demand Score', 'Supply Score']
         # Remove None columns for products without Magnet data
         magnet_cols = [col for col in magnet_cols if df[col].notna().any()]
         cols = base_cols + magnet_cols
@@ -371,9 +376,13 @@ def display_comparison_table(comparison_df: pd.DataFrame):
         display_df['Trend %'] = display_df['Trend %'].apply(
             lambda x: f"{x:+.0f}%" if pd.notna(x) else "N/A"
         )
-    if 'D/S Ratio' in display_df.columns and display_df['D/S Ratio'].notna().any():
-        display_df['D/S Ratio'] = display_df['D/S Ratio'].apply(
-            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+    if 'D/S Ratio (Pg 1-2)' in display_df.columns and display_df['D/S Ratio (Pg 1-2)'].notna().any():
+        display_df['D/S Ratio (Pg 1-2)'] = display_df['D/S Ratio (Pg 1-2)'].apply(
+            lambda x: f"{x:.0f}" if pd.notna(x) else "N/A"
+        )
+    if 'Success Rate %' in display_df.columns and display_df['Success Rate %'].notna().any():
+        display_df['Success Rate %'] = display_df['Success Rate %'].apply(
+            lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A"
         )
 
     # Add emoji for action
@@ -389,19 +398,41 @@ def display_comparison_table(comparison_df: pd.DataFrame):
     display_df['Emoji'] = display_df['Action'].apply(get_action_emoji)
 
     # Display table
+    column_config = {
+        "Emoji": st.column_config.TextColumn("", width="small"),
+        "Score %": st.column_config.ProgressColumn(
+            "Score %",
+            format="%.1f%%",
+            min_value=0,
+            max_value=100,
+        ),
+    }
+
+    # Add tooltips for Magnet columns if they exist
+    if 'D/S Ratio (Pg 1-2)' in display_df.columns:
+        column_config["D/S Ratio (Pg 1-2)"] = st.column_config.TextColumn(
+            "D/S Ratio (Pg 1-2)",
+            help="Searches per product ranking on pages 1-2. Higher = better opportunity for ranked products.",
+            width="medium"
+        )
+    if 'Success Rate %' in display_df.columns:
+        column_config["Success Rate %"] = st.column_config.TextColumn(
+            "Success Rate %",
+            help="% of total listings that rank on pages 1-2. Lower = harder to rank but bigger reward.",
+            width="medium"
+        )
+    if 'Products Ranking' in display_df.columns:
+        column_config["Products Ranking"] = st.column_config.NumberColumn(
+            "Products Ranking",
+            help="Number of products from X-Ray export ranking on pages 1-2",
+            width="small"
+        )
+
     st.dataframe(
         display_df,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "Emoji": st.column_config.TextColumn("", width="small"),
-            "Score %": st.column_config.ProgressColumn(
-                "Score %",
-                format="%.1f%%",
-                min_value=0,
-                max_value=100,
-            ),
-        }
+        column_config=column_config
     )
 
     # Summary statistics
@@ -498,7 +529,7 @@ def display_detailed_view(product_name: str, product_data: Dict[str, Any]):
 
     # === DEMAND ANALYSIS (if Magnet data available) ===
     if magnet_demand is not None and magnet_ds is not None:
-        st.subheader("📊 DEMAND ANALYSIS (from Magnet)")
+        st.subheader("📊 DEMAND-SUPPLY ANALYSIS")
 
         # Key metrics row
         col1, col2, col3, col4 = st.columns(4)
@@ -520,27 +551,41 @@ def display_detailed_view(product_name: str, product_data: Dict[str, Any]):
             )
 
         with col4:
-            competitors = magnet_demand['competing_products']
-            st.metric("Competing Products", f"{competitors:,}")
+            xray_count = magnet_ds.get('xray_product_count', 0)
+            st.metric("Products Ranking (Pg 1-2)", f"{xray_count}")
 
-        # D/S Ratio card
-        st.markdown("### Demand/Supply Analysis")
-        col1, col2, col3 = st.columns(3)
+        # D/S Ratio card with new metrics
+        st.markdown("### Demand Capture Analysis")
+        col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            ratio = magnet_ds['ratio']
+            ds_ratio = magnet_ds.get('ds_ratio', magnet_ds.get('ratio', 0))
             verdict_emoji = magnet_ds['verdict_emoji']
-            st.metric("D/S Ratio", f"{ratio:.1f} {verdict_emoji}")
+            st.metric("D/S Ratio (Pg 1-2)", f"{ds_ratio:.0f} {verdict_emoji}")
 
         with col2:
             verdict = magnet_ds['verdict']
             st.metric("Verdict", verdict)
 
         with col3:
-            balance_score = magnet_ds['balance_score']
-            st.metric("Balance Score", f"{balance_score}/50")
+            success_rate = magnet_ds.get('success_rate', 0)
+            st.metric("Success Rate", f"{success_rate:.2f}%")
 
-        st.info(f"**Analysis**: {magnet_ds['reasoning']}")
+        with col4:
+            magnet_total = magnet_ds.get('magnet_total_listings', magnet_demand['competing_products'])
+            st.metric("Total Market Listings", f"{magnet_total:,}")
+
+        # Enhanced explanation box
+        st.info(f"""
+💡 **How to Read These Numbers:**
+
+**D/S Ratio ({ds_ratio:.0f}):** Each product ranking on pages 1-2 captures ~{ds_ratio:.0f} searches/month on average.
+
+**Success Rate ({success_rate:.2f}%):** Only {xray_count} of {magnet_total:,} total listings rank on first 2 pages.
+This means {100 - success_rate:.1f}% of sellers failed to rank.
+
+**Analysis:** {magnet_ds['reasoning']}
+        """)
 
         # Top related keywords
         if magnet_demand['top_related_keywords']:

@@ -183,6 +183,13 @@ def validate_dataframe(df: pd.DataFrame) -> tuple[bool, list[str]]:
     if len(df) < 10:
         warnings.append(f"Only {len(df)} products found - export may be incomplete (expected 10+)")
 
+    # X-Ray product count quality validation
+    product_count = len(df)
+    if product_count < 30:
+        warnings.append(f"⚠️ X-Ray export has only {product_count} products. For accurate D/S ratio, export should include pages 1-2 (~48 products). Your D/S ratio may be inflated.")
+    elif product_count > 200:
+        warnings.append(f"⚠️ X-Ray export has {product_count} products (likely 4+ pages). For accurate D/S ratio, limit to pages 1-2 (~48 products). Your D/S ratio may be understated.")
+
     # Check for suspicious data
     zero_revenue_count = (df['Revenue'] == 0).sum()
     if zero_revenue_count > 0:

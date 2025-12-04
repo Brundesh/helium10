@@ -40,7 +40,7 @@ def create_excel_export(products_data: Dict[str, Any], comparison_df: pd.DataFra
 
     # Add Magnet columns if available
     if 'Search Volume' in rankings_df.columns and rankings_df['Search Volume'].notna().any():
-        rankings_cols.extend(['Search Volume', 'Trend %', 'D/S Ratio'])
+        rankings_cols.extend(['Search Volume', 'Trend %', 'Products Ranking', 'D/S Ratio (Pg 1-2)', 'Success Rate %'])
 
     rankings_cols.extend(['Red Flags', 'Yellow Flags', 'Green Signals', 'Action', 'Risk Level'])
 
@@ -102,10 +102,12 @@ def create_excel_export(products_data: Dict[str, Any], comparison_df: pd.DataFra
                 'Seed Keyword': magnet_demand['seed_keyword'],
                 'Search Volume': magnet_demand['search_volume'],
                 'Trend %': magnet_demand['trend'],
-                'Competing Products': magnet_demand['competing_products'],
+                'Total Listings': magnet_demand['competing_products'],
+                'Products Ranking': magnet_ds.get('xray_product_count') if magnet_ds else None,
                 'Magnet IQ Score': magnet_demand['magnet_iq_score'],
                 'Total Related Keywords': magnet_demand['total_related_keywords'],
-                'D/S Ratio': magnet_ds['ratio'] if magnet_ds else None,
+                'D/S Ratio (Pg 1-2)': magnet_ds.get('ds_ratio', magnet_ds.get('ratio')) if magnet_ds else None,
+                'Success Rate %': magnet_ds.get('success_rate') if magnet_ds else None,
                 'Demand Score': magnet_ds['demand_score'] if magnet_ds else None,
                 'Supply Score': magnet_ds['supply_score'] if magnet_ds else None,
                 'Balance Score': magnet_ds['balance_score'] if magnet_ds else None,
@@ -116,10 +118,12 @@ def create_excel_export(products_data: Dict[str, Any], comparison_df: pd.DataFra
                 'Seed Keyword': None,
                 'Search Volume': None,
                 'Trend %': None,
-                'Competing Products': None,
+                'Total Listings': None,
+                'Products Ranking': None,
                 'Magnet IQ Score': None,
                 'Total Related Keywords': None,
-                'D/S Ratio': None,
+                'D/S Ratio (Pg 1-2)': None,
+                'Success Rate %': None,
                 'Demand Score': None,
                 'Supply Score': None,
                 'Balance Score': None,
